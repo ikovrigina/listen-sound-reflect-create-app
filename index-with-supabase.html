@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>listen.sound.reflect.create v2</title>
+    <title>listen.sound.reflect.create FIXED</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="config.js"></script>
@@ -550,8 +550,12 @@
         let selectedPastId = null;
         let tg = null;
         let inTelegram = false;
-        let sandboxMode = false;
+        let sandboxMode = false; // ИСПРАВЛЕНО: было true
         let micReady = false;
+        
+        // Отладочная информация
+        console.log('🔧 AUDIO DEBUG: sandboxMode =', sandboxMode);
+        console.log('🔧 AUDIO DEBUG: MediaDevices supported =', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
         let currentUserId = null;
         let currentSession = {
             initialScore: null,
