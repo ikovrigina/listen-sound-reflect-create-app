@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>listen.sound.reflect.create</title>
+    <title>listen.sound.reflect.create FIXED</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="config.js"></script>
@@ -289,6 +289,7 @@
             <div class="card-title">Sound back</div>
             <div class="text-center">
                 <div class="text-sm mb-4">(your response to what you heard)</div>
+                <div id="soundRecordingStatus" class="text-sm mb-4">(ready to record)</div>
                 <div class="flex gap-3 justify-center">
                     <button id="soundRecordBtn" class="btn" onclick="startSoundRecording()">🎤 Record</button>
                     <button id="soundContinueBtn" class="btn hidden" onclick="finishSound()">Continue</button>
@@ -549,8 +550,12 @@
         let selectedPastId = null;
         let tg = null;
         let inTelegram = false;
-        let sandboxMode = true;
+        let sandboxMode = false; // ИСПРАВЛЕНО: было true
         let micReady = false;
+        
+        // Отладочная информация
+        console.log('🔧 AUDIO DEBUG: sandboxMode =', sandboxMode);
+        console.log('🔧 AUDIO DEBUG: MediaDevices supported =', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
         let currentUserId = null;
         let currentSession = {
             initialScore: null,
@@ -688,49 +693,104 @@
             setPhase('listenChoice');
         }
         
-        function startRecording() {
-            if (sandboxMode || !micReady) {
-                // Simulate recording
+        async function startRecording() {
+            // Показать статус записи
+            document.getElementById('recordingStatus').textContent = 'Requesting microphone access...';
+            
+            // Сбрасываем sandbox режим при попытке записи
+            sandboxMode = false;
+            
+            try {
+                // Проверяем поддержку MediaRecorder
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('MediaRecorder not supported');
+                }
+                
+                // Запрашиваем доступ к микрофону
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 44100
+                    }
+                });
+                
+                // Создаем MediaRecorder
+                const options = { mimeType: 'audio/webm;codecs=opus' };
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options.mimeType = 'audio/webm';
+                }
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options.mimeType = 'audio/mp4';
+                }
+                
+                mediaRecorder = new MediaRecorder(stream, options);
+                chunks = [];
+                
+                mediaRecorder.ondataavailable = e => {
+                    if (e.data.size > 0) chunks.push(e.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const blob = new Blob(chunks, { type: mediaRecorder.mimeType });
+                    
+                    // Создаем локальный URL для воспроизведения
+                    currentListenUrl = URL.createObjectURL(blob);
+                    document.getElementById('listenAudio').src = currentListenUrl;
+                    document.getElementById('listenAudio').classList.remove('hidden');
+                    document.getElementById('soundBtn').classList.remove('hidden');
+                    
+                    // Сохраняем в Supabase Storage
+                    try {
+                        await saveAudioToSupabase(blob, 'listen');
+                        document.getElementById('recordingStatus').textContent = '✅ Audio saved successfully';
+                    } catch (error) {
+                        console.error('Failed to save audio:', error);
+                        document.getElementById('recordingStatus').textContent = '⚠️ Audio recorded locally (save failed)';
+                    }
+                    
+                    // Останавливаем все треки
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                mediaRecorder.onerror = (event) => {
+                    console.error('MediaRecorder error:', event.error);
+                    document.getElementById('recordingStatus').textContent = '❌ Recording error';
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                // Начинаем запись
+                mediaRecorder.start(1000); // Собираем данные каждую секунду
                 isRecording = true;
+                
                 document.getElementById('recordBtn').textContent = '⏹️ Stop';
                 document.getElementById('recordBtn').onclick = stopRecording;
+                document.getElementById('recordingStatus').textContent = '🎤 Recording... (click Stop when done)';
                 
-                setTimeout(() => {
-                    createSilentAudio('listen');
-                    isRecording = false;
-                    document.getElementById('recordBtn').textContent = '🎤 Record';
-                    document.getElementById('recordBtn').onclick = startRecording;
-                }, 1000);
-                return;
-            }
-            
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then(stream => {
-                    mediaRecorder = new MediaRecorder(stream);
-                    chunks = [];
-                    
-                    mediaRecorder.ondataavailable = e => {
-                        if (e.data.size > 0) chunks.push(e.data);
-                    };
-                    
-                    mediaRecorder.onstop = () => {
-                        const blob = new Blob(chunks, { type: 'audio/webm' });
-                        currentListenUrl = URL.createObjectURL(blob);
-                        document.getElementById('listenAudio').src = currentListenUrl;
-                        document.getElementById('listenAudio').classList.remove('hidden');
-                        document.getElementById('soundBtn').classList.remove('hidden');
-                    };
-                    
-                    mediaRecorder.start();
-                    isRecording = true;
-                    document.getElementById('recordBtn').textContent = '⏹️ Stop';
-                    document.getElementById('recordBtn').onclick = stopRecording;
-                })
-                .catch(e => {
-                    console.warn('Recording failed:', e);
+            } catch (error) {
+                console.error('Recording setup failed:', error);
+                
+                // Показываем пользователю варианты
+                if (error.name === 'NotAllowedError') {
+                    document.getElementById('recordingStatus').innerHTML = 
+                        '❌ Microphone access denied.<br>Please allow microphone access and try again.';
+                } else if (error.name === 'NotFoundError') {
+                    document.getElementById('recordingStatus').innerHTML = 
+                        '❌ No microphone found.<br>Please connect a microphone and try again.';
+                } else {
+                    document.getElementById('recordingStatus').innerHTML = 
+                        '❌ Recording not available.<br>You can upload an audio file instead.';
+                }
+                
+                // Показываем опцию загрузки файла
+                document.getElementById('uploadControls').classList.remove('hidden');
+                
+                // Активируем sandbox режим только если это не проблема с разрешениями
+                if (error.name !== 'NotAllowedError' && error.name !== 'NotFoundError') {
                     sandboxMode = true;
                     document.getElementById('sandboxBanner').classList.remove('hidden');
-                });
+                }
+            }
         }
         
         function stopRecording() {
@@ -748,49 +808,122 @@
             currentSoundUrl = null;
         }
         
-        function startSoundRecording() {
-            if (sandboxMode || !micReady) {
-                // Simulate recording
-                isRecording = true;
-                document.getElementById('soundRecordBtn').textContent = '⏹️ Stop';
-                document.getElementById('soundRecordBtn').onclick = stopSoundRecording;
-                
-                setTimeout(() => {
-                    createSilentAudio('sound');
-                    isRecording = false;
-                    document.getElementById('soundRecordBtn').textContent = '🎤 Record';
-                    document.getElementById('soundRecordBtn').onclick = startSoundRecording;
-                }, 1000);
-                return;
+        async function startSoundRecording() {
+            // Показать статус записи
+            const statusElement = document.getElementById('soundRecordingStatus') || 
+                                document.getElementById('recordingStatus');
+            if (statusElement) {
+                statusElement.textContent = 'Requesting microphone access...';
             }
             
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then(stream => {
-                    mediaRecorder = new MediaRecorder(stream);
-                    chunks = [];
+            // Сбрасываем sandbox режим при попытке записи
+            sandboxMode = false;
+            
+            try {
+                // Проверяем поддержку MediaRecorder
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('MediaRecorder not supported');
+                }
+                
+                // Запрашиваем доступ к микрофону
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 44100
+                    }
+                });
+                
+                // Создаем MediaRecorder
+                const options = { mimeType: 'audio/webm;codecs=opus' };
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options.mimeType = 'audio/webm';
+                }
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options.mimeType = 'audio/mp4';
+                }
+                
+                mediaRecorder = new MediaRecorder(stream, options);
+                chunks = [];
+                
+                mediaRecorder.ondataavailable = e => {
+                    if (e.data.size > 0) chunks.push(e.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const blob = new Blob(chunks, { type: mediaRecorder.mimeType });
                     
-                    mediaRecorder.ondataavailable = e => {
-                        if (e.data.size > 0) chunks.push(e.data);
-                    };
+                    // Создаем локальный URL для воспроизведения
+                    currentSoundUrl = URL.createObjectURL(blob);
+                    document.getElementById('soundAudio').src = currentSoundUrl;
+                    document.getElementById('soundAudio').classList.remove('hidden');
+                    document.getElementById('soundContinueBtn').classList.remove('hidden');
                     
-                    mediaRecorder.onstop = () => {
-                        const blob = new Blob(chunks, { type: 'audio/webm' });
-                        currentSoundUrl = URL.createObjectURL(blob);
-                        document.getElementById('soundAudio').src = currentSoundUrl;
-                        document.getElementById('soundAudio').classList.remove('hidden');
-                        document.getElementById('soundContinueBtn').classList.remove('hidden');
-                    };
+                    // Сохраняем в Supabase Storage
+                    try {
+                        await saveAudioToSupabase(blob, 'sound');
+                        if (statusElement) {
+                            statusElement.textContent = '✅ Audio saved successfully';
+                        }
+                    } catch (error) {
+                        console.error('Failed to save sound audio:', error);
+                        if (statusElement) {
+                            statusElement.textContent = '⚠️ Audio recorded locally (save failed)';
+                        }
+                    }
                     
-                    mediaRecorder.start();
-                    isRecording = true;
-                    document.getElementById('soundRecordBtn').textContent = '⏹️ Stop';
-                    document.getElementById('soundRecordBtn').onclick = stopSoundRecording;
-                })
-                .catch(e => {
-                    console.warn('Recording failed:', e);
+                    // Останавливаем все треки
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                mediaRecorder.onerror = (event) => {
+                    console.error('MediaRecorder error:', event.error);
+                    if (statusElement) {
+                        statusElement.textContent = '❌ Recording error';
+                    }
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                // Начинаем запись
+                mediaRecorder.start(1000);
+                isRecording = true;
+                
+                document.getElementById('soundRecordBtn').textContent = '⏹️ Stop';
+                document.getElementById('soundRecordBtn').onclick = stopSoundRecording;
+                if (statusElement) {
+                    statusElement.textContent = '🎤 Recording sound... (click Stop when done)';
+                }
+                
+            } catch (error) {
+                console.error('Sound recording setup failed:', error);
+                
+                // Показываем пользователю варианты
+                if (statusElement) {
+                    if (error.name === 'NotAllowedError') {
+                        statusElement.innerHTML = 
+                            '❌ Microphone access denied.<br>Please allow microphone access and try again.';
+                    } else if (error.name === 'NotFoundError') {
+                        statusElement.innerHTML = 
+                            '❌ No microphone found.<br>Please connect a microphone and try again.';
+                    } else {
+                        statusElement.innerHTML = 
+                            '❌ Recording not available.<br>You can upload an audio file instead.';
+                    }
+                }
+                
+                // Показываем опцию загрузки файла для sound тоже
+                const uploadControls = document.getElementById('soundUploadControls') || 
+                                     document.getElementById('uploadControls');
+                if (uploadControls) {
+                    uploadControls.classList.remove('hidden');
+                }
+                
+                // Активируем sandbox режим только если это не проблема с разрешениями
+                if (error.name !== 'NotAllowedError' && error.name !== 'NotFoundError') {
                     sandboxMode = true;
                     document.getElementById('sandboxBanner').classList.remove('hidden');
-                });
+                }
+            }
         }
         
         function stopSoundRecording() {
@@ -878,6 +1011,77 @@
             setPhase('intro');
         }
         
+        async function saveAudioToSupabase(blob, type) {
+            if (!supabase) {
+                throw new Error('Supabase not initialized');
+            }
+            
+            // Генерируем уникальное имя файла
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const userId = tg?.initDataUnsafe?.user?.id || 'anonymous';
+            const fileName = `${type}_${userId}_${timestamp}.webm`;
+            const filePath = `audio/${fileName}`;
+            
+            try {
+                // Загружаем файл в Supabase Storage
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('audio')
+                    .upload(filePath, blob, {
+                        contentType: blob.type,
+                        upsert: false
+                    });
+                
+                if (uploadError) {
+                    throw uploadError;
+                }
+                
+                // Получаем публичный URL
+                const { data: urlData } = supabase.storage
+                    .from('audio')
+                    .getPublicUrl(filePath);
+                
+                const publicUrl = urlData.publicUrl;
+                
+                // Сохраняем информацию о файле в базу данных
+                const { data: dbData, error: dbError } = await supabase
+                    .from('audio_files')
+                    .insert({
+                        file_name: fileName,
+                        file_path: filePath,
+                        file_url: publicUrl,
+                        file_size: blob.size,
+                        mime_type: blob.type,
+                        audio_type: type,
+                        user_id: userId,
+                        created_at: new Date().toISOString()
+                    })
+                    .select()
+                    .single();
+                
+                if (dbError) {
+                    console.error('Database save error:', dbError);
+                    // Файл загружен, но не записан в БД - это не критично
+                }
+                
+                console.log('Audio saved successfully:', {
+                    fileName,
+                    publicUrl,
+                    size: blob.size
+                });
+                
+                return {
+                    fileName,
+                    publicUrl,
+                    filePath,
+                    audioFileId: dbData?.id
+                };
+                
+            } catch (error) {
+                console.error('Supabase storage error:', error);
+                throw error;
+            }
+        }
+        
         function createSilentAudio(type) {
             // Create a simple silent audio blob
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -902,21 +1106,60 @@
             }
         }
         
-        function uploadAudio(input, type) {
+        async function uploadAudio(input, type) {
             const file = input.files[0];
-            if (file) {
-                const url = URL.createObjectURL(file);
-                if (type === 'listen') {
-                    currentListenUrl = url;
-                    document.getElementById('listenAudio').src = url;
-                    document.getElementById('listenAudio').classList.remove('hidden');
-                    document.getElementById('soundBtn').classList.remove('hidden');
-                } else if (type === 'sound') {
-                    currentSoundUrl = url;
-                    document.getElementById('soundAudio').src = url;
-                    document.getElementById('soundAudio').classList.remove('hidden');
-                    document.getElementById('soundContinueBtn').classList.remove('hidden');
+            if (!file) return;
+            
+            // Проверяем размер файла (максимум 10MB)
+            const maxSize = 10 * 1024 * 1024; // 10MB
+            if (file.size > maxSize) {
+                alert('File too large. Please choose a file smaller than 10MB.');
+                return;
+            }
+            
+            // Проверяем тип файла
+            const allowedTypes = ['audio/webm', 'audio/wav', 'audio/mp3', 'audio/m4a', 'audio/ogg'];
+            if (!allowedTypes.includes(file.type)) {
+                alert('Unsupported file type. Please use: WebM, WAV, MP3, M4A, or OGG.');
+                return;
+            }
+            
+            const url = URL.createObjectURL(file);
+            
+            // Показываем статус загрузки
+            const statusElement = type === 'listen' 
+                ? document.getElementById('recordingStatus')
+                : document.getElementById('soundRecordingStatus');
+            
+            if (statusElement) {
+                statusElement.textContent = 'Uploading audio file...';
+            }
+            
+            try {
+                // Сохраняем в Supabase Storage
+                await saveAudioToSupabase(file, type);
+                
+                if (statusElement) {
+                    statusElement.textContent = '✅ Audio file uploaded successfully';
                 }
+            } catch (error) {
+                console.error('Failed to upload audio file:', error);
+                if (statusElement) {
+                    statusElement.textContent = '⚠️ Audio loaded locally (upload failed)';
+                }
+            }
+            
+            // Обновляем UI
+            if (type === 'listen') {
+                currentListenUrl = url;
+                document.getElementById('listenAudio').src = url;
+                document.getElementById('listenAudio').classList.remove('hidden');
+                document.getElementById('soundBtn').classList.remove('hidden');
+            } else if (type === 'sound') {
+                currentSoundUrl = url;
+                document.getElementById('soundAudio').src = url;
+                document.getElementById('soundAudio').classList.remove('hidden');
+                document.getElementById('soundContinueBtn').classList.remove('hidden');
             }
         }
         
