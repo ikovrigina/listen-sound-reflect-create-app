@@ -2,32 +2,46 @@
 // Listen.Sound.Reflect.Create - Configuration
 // ========================================
 
-// Функция для загрузки переменных окружения из .env файла (для браузера)
+// Функция для загрузки переменных окружения
 async function loadEnvVariables() {
+    let envVars = {};
+    
+    // Сначала попробуем загрузить через API (для Vercel)
     try {
-        // Попытка загрузить .env файл (если доступен)
-        const response = await fetch('.env');
+        const response = await fetch('/api/config');
         if (response.ok) {
-            const envText = await response.text();
-            const envVars = {};
-            
-            envText.split('\n').forEach(line => {
-                line = line.trim();
-                if (line && !line.startsWith('#')) {
-                    const [key, ...valueParts] = line.split('=');
-                    if (key && valueParts.length > 0) {
-                        envVars[key.trim()] = valueParts.join('=').trim();
-                    }
-                }
-            });
-            
-            return envVars;
+            const apiConfig = await response.json();
+            envVars = { ...envVars, ...apiConfig };
+            console.log('Loaded config from API:', Object.keys(apiConfig));
         }
     } catch (error) {
-        console.warn('Could not load .env file:', error);
+        console.warn('Could not load config from API:', error);
     }
     
-    return {};
+    // Fallback: попытка загрузить .env файл (только для локальной разработки)
+    if (Object.keys(envVars).length === 0) {
+        try {
+            const response = await fetch('.env');
+            if (response.ok) {
+                const envText = await response.text();
+                
+                envText.split('\n').forEach(line => {
+                    line = line.trim();
+                    if (line && !line.startsWith('#')) {
+                        const [key, ...valueParts] = line.split('=');
+                        if (key && valueParts.length > 0) {
+                            envVars[key.trim()] = valueParts.join('=').trim();
+                        }
+                    }
+                });
+                console.log('Loaded config from .env file:', Object.keys(envVars));
+            }
+        } catch (error) {
+            console.warn('Could not load .env file:', error);
+        }
+    }
+    
+    return envVars;
 }
 
 // Базовая конфигурация (fallback значения)
