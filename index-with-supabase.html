@@ -550,7 +550,7 @@
         let selectedPastId = null;
         let tg = null;
         let inTelegram = false;
-        let sandboxMode = true;
+        let sandboxMode = false;
         let micReady = false;
         let currentUserId = null;
         let currentSession = {
@@ -693,6 +693,9 @@
             // Показать статус записи
             document.getElementById('recordingStatus').textContent = 'Requesting microphone access...';
             
+            // Сбрасываем sandbox режим при попытке записи
+            sandboxMode = false;
+            
             try {
                 // Проверяем поддержку MediaRecorder
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -808,6 +811,9 @@
             if (statusElement) {
                 statusElement.textContent = 'Requesting microphone access...';
             }
+            
+            // Сбрасываем sandbox режим при попытке записи
+            sandboxMode = false;
             
             try {
                 // Проверяем поддержку MediaRecorder
