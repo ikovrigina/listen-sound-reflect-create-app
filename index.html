@@ -1112,6 +1112,7 @@
                 // Проверяем существование bucket и создаем если нужно
                 const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
                 console.log('🔧 Available buckets:', buckets);
+                console.log('🔧 Buckets error:', bucketsError);
                 
                 const audioBucketExists = buckets?.some(bucket => bucket.name === 'audio');
                 if (!audioBucketExists) {
@@ -1149,16 +1150,20 @@
                 const publicUrl = urlData.publicUrl;
                 
                 // Сохраняем информацию о файле в базу данных
+                const audioFileData = {
+                    file_name: fileName,
+                    file_path: filePath,
+                    file_url: publicUrl,
+                    file_size: blob.size,
+                    mime_type: blob.type,
+                    user_id: userId
+                };
+                
+                console.log('🔧 Inserting audio file data:', audioFileData);
+                
                 const { data: dbData, error: dbError } = await supabase
                     .from('audio_files')
-                    .insert({
-                        file_name: fileName,
-                        file_path: filePath,
-                        file_url: publicUrl,
-                        file_size: blob.size,
-                        mime_type: blob.type,
-                        user_id: userId
-                    })
+                    .insert(audioFileData)
                     .select()
                     .single();
                 
