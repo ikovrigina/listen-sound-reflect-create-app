@@ -559,7 +559,11 @@
         let currentUserId = null;
         let currentSession = {
             initialScore: null,
-            initialScoreId: null
+            initialScoreId: null,
+            capsuleId: null,
+            currentFragmentId: null,
+            listenAudioId: null,
+            soundAudioId: null
         };
         
         // Initialize
@@ -603,8 +607,79 @@
         }
         
         async function startNewSession() {
+            console.log('🔧 Starting new session...');
+            
+            // Load a new random score
             await loadInitialScore();
+            
+            // Create new capsule in database
+            await createCapsule();
+            
             setPhase('listenChoice');
+        }
+        
+        async function createCapsule() {
+            if (!supabase || !currentSession.initialScoreId) {
+                console.error('Cannot create capsule: missing Supabase or score');
+                return;
+            }
+            
+            try {
+                console.log('🔧 Creating capsule for score:', currentSession.initialScoreId);
+                
+                const { data, error } = await supabase
+                    .from('capsules')
+                    .insert({
+                        user_id: currentUserId || 'anonymous',
+                        initial_score_id: currentSession.initialScoreId,
+                        is_public: true
+                    })
+                    .select()
+                    .single();
+                
+                if (error) {
+                    console.error('Failed to create capsule:', error);
+                    return;
+                }
+                
+                currentSession.capsuleId = data.id;
+                console.log('🔧 Capsule created:', data.id);
+                
+            } catch (error) {
+                console.error('Error creating capsule:', error);
+            }
+        }
+        
+        async function createFragment() {
+            if (!supabase || !currentSession.capsuleId) {
+                console.error('Cannot create fragment: missing capsule');
+                return;
+            }
+            
+            try {
+                console.log('🔧 Creating fragment for capsule:', currentSession.capsuleId);
+                
+                const { data, error } = await supabase
+                    .from('fragments')
+                    .insert({
+                        capsule_id: currentSession.capsuleId,
+                        cycle_number: fragments.length + 1,
+                        listen_source: 'environment'
+                    })
+                    .select()
+                    .single();
+                
+                if (error) {
+                    console.error('Failed to create fragment:', error);
+                    return;
+                }
+                
+                currentSession.currentFragmentId = data.id;
+                console.log('🔧 Fragment created:', data.id);
+                
+            } catch (error) {
+                console.error('Error creating fragment:', error);
+            }
         }
         
         function runDiagnostics() {
@@ -682,8 +757,10 @@
             }
         }
         
-        function chooseListenEnvironment() {
+        async function chooseListenEnvironment() {
             currentListenUrl = null;
+            // Создаем фрагмент для этого цикла
+            await createFragment();
             setPhase('listening');
         }
         
@@ -1079,9 +1156,7 @@
                         file_url: publicUrl,
                         file_size: blob.size,
                         mime_type: blob.type,
-                        audio_type: type,
-                        user_id: userId,
-                        created_at: new Date().toISOString()
+                        user_id: userId
                     })
                     .select()
                     .single();
@@ -1091,22 +1166,67 @@
                     // Файл загружен, но не записан в БД - это не критично
                 }
                 
+                const audioFileId = dbData?.id;
+                
+                // Связываем аудио с текущим фрагментом
+                if (audioFileId && currentSession.currentFragmentId) {
+                    await linkAudioToFragment(audioFileId, type);
+                }
+                
                 console.log('Audio saved successfully:', {
                     fileName,
                     publicUrl,
-                    size: blob.size
+                    size: blob.size,
+                    audioFileId
                 });
                 
                 return {
                     fileName,
                     publicUrl,
                     filePath,
-                    audioFileId: dbData?.id
+                    audioFileId
                 };
                 
             } catch (error) {
                 console.error('Supabase storage error:', error);
                 throw error;
+            }
+        }
+        
+        async function linkAudioToFragment(audioFileId, type) {
+            if (!supabase || !currentSession.currentFragmentId) {
+                console.error('Cannot link audio: missing fragment');
+                return;
+            }
+            
+            try {
+                console.log('🔧 Linking audio to fragment:', { audioFileId, type, fragmentId: currentSession.currentFragmentId });
+                
+                const updateData = {};
+                if (type === 'listen') {
+                    updateData.listen_audio_id = audioFileId;
+                    currentSession.listenAudioId = audioFileId;
+                } else if (type === 'sound') {
+                    updateData.sound_audio_id = audioFileId;
+                    currentSession.soundAudioId = audioFileId;
+                }
+                
+                const { data, error } = await supabase
+                    .from('fragments')
+                    .update(updateData)
+                    .eq('id', currentSession.currentFragmentId)
+                    .select()
+                    .single();
+                
+                if (error) {
+                    console.error('Failed to link audio to fragment:', error);
+                    return;
+                }
+                
+                console.log('🔧 Audio linked to fragment:', data);
+                
+            } catch (error) {
+                console.error('Error linking audio to fragment:', error);
             }
         }
         
