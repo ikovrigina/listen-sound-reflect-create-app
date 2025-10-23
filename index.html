@@ -1020,8 +1020,8 @@
         function finishSound() {
             const fragment = {
                 listenSource: 'environment',
-                listenUrl: currentListenUrl,
-                soundUrl: currentSoundUrl,
+                listenUrl: currentListenUrl || '',
+                soundUrl: currentSoundUrl || '',
                 cycleNumber: fragments.length + 1,
             };
             fragments.push(fragment);
