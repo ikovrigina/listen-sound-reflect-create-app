@@ -1116,18 +1116,8 @@
                 
                 const audioBucketExists = buckets?.some(bucket => bucket.name === 'audio');
                 if (!audioBucketExists) {
-                    console.log('🔧 Creating audio bucket...');
-                    const { data: newBucket, error: createError } = await supabase.storage.createBucket('audio', {
-                        public: true,
-                        fileSizeLimit: 10485760, // 10MB
-                        allowedMimeTypes: ['audio/webm', 'audio/wav', 'audio/mp3', 'audio/m4a', 'audio/ogg']
-                    });
-                    
-                    if (createError) {
-                        console.error('🔧 Failed to create bucket:', createError);
-                        throw new Error(`Failed to create audio bucket: ${createError.message}`);
-                    }
-                    console.log('🔧 Audio bucket created:', newBucket);
+                    console.log('🔧 Audio bucket not found in list, but it should exist');
+                    // Bucket уже создан через MCP, просто продолжаем
                 }
                 
                 // Загружаем файл в Supabase Storage
