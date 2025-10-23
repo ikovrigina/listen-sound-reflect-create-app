@@ -742,11 +742,14 @@
                     
                     // Сохраняем в Supabase Storage
                     try {
-                        await saveAudioToSupabase(blob, 'listen');
+                        console.log('🔧 Attempting to save audio to Supabase...');
+                        const result = await saveAudioToSupabase(blob, 'listen');
+                        console.log('🔧 Save result:', result);
                         document.getElementById('recordingStatus').textContent = '✅ Audio saved successfully';
                     } catch (error) {
-                        console.error('Failed to save audio:', error);
-                        document.getElementById('recordingStatus').textContent = '⚠️ Audio recorded locally (save failed)';
+                        console.error('🔧 Failed to save audio:', error);
+                        console.error('🔧 Error details:', error.message, error.stack);
+                        document.getElementById('recordingStatus').textContent = `⚠️ Audio recorded locally (save failed: ${error.message})`;
                     }
                     
                     // Останавливаем все треки
@@ -1012,9 +1015,14 @@
         }
         
         async function saveAudioToSupabase(blob, type) {
+            console.log('🔧 saveAudioToSupabase called with:', { blobSize: blob.size, type });
+            
             if (!supabase) {
                 throw new Error('Supabase not initialized');
             }
+            
+            console.log('🔧 Supabase client exists:', !!supabase);
+            console.log('🔧 Supabase storage:', !!supabase.storage);
             
             // Генерируем уникальное имя файла
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
