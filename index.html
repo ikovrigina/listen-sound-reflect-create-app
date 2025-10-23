@@ -1031,6 +1031,26 @@
             const filePath = `audio/${fileName}`;
             
             try {
+                // Проверяем существование bucket и создаем если нужно
+                const { data: buckets, error: bucketsError } = await supabase.storage.listBuckets();
+                console.log('🔧 Available buckets:', buckets);
+                
+                const audioBucketExists = buckets?.some(bucket => bucket.name === 'audio');
+                if (!audioBucketExists) {
+                    console.log('🔧 Creating audio bucket...');
+                    const { data: newBucket, error: createError } = await supabase.storage.createBucket('audio', {
+                        public: true,
+                        fileSizeLimit: 10485760, // 10MB
+                        allowedMimeTypes: ['audio/webm', 'audio/wav', 'audio/mp3', 'audio/m4a', 'audio/ogg']
+                    });
+                    
+                    if (createError) {
+                        console.error('🔧 Failed to create bucket:', createError);
+                        throw new Error(`Failed to create audio bucket: ${createError.message}`);
+                    }
+                    console.log('🔧 Audio bucket created:', newBucket);
+                }
+                
                 // Загружаем файл в Supabase Storage
                 const { data: uploadData, error: uploadError } = await supabase.storage
                     .from('audio')
